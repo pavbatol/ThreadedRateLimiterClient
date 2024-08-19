@@ -1,9 +1,9 @@
 package com.example;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.*;
-import lombok.experimental.Accessors;
-import lombok.experimental.FieldDefaults;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
@@ -17,11 +17,17 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * Для монитора и счетчика используются статические переменные. Все экземпляры класса будут мониторить одни данные.
+ * Любой из экземпляров гарантированно не превысит лимит запросов за интервал времени.
+ */
+
+//Чтобы протестировать работу CrptApi, просто запустить класс Main. В нем инициируется запросы из нескольких потоков.
+
 @Slf4j
 public class CrptApi {
-    private static final String URL = "https://ismp.crpt.ru/api/v3/lk/documents/create";
-    private static final String AUTH_TOKEN = "Bearer ВАШ_ТОКЕН";
-    private static final String SIGNATURE = "ВАШF_ПОДПИСЬ";
+    private static final String URL = "https://ismp.crpt.ru/api/v3/lk/documents/create"; //Use a fake URL for tests: http://example.com/api
+    private static final String AUTH_TOKEN = "Bearer YOUR_TOKEN";
     private static final Object lock = new Object();
     private static long intervalStartMs = System.currentTimeMillis();
     private static int requestCount = 0;
@@ -53,7 +59,7 @@ public class CrptApi {
         log.info("Client {} instanced\n", CrptApi.class.getSimpleName());
     }
 
-    public int post(Document document, String jsonStr) {
+    public int post(Document document, String signature) {
         synchronized (lock) {
             long currentTime;
             while (true) {
@@ -84,10 +90,20 @@ public class CrptApi {
 
             int statusCode = 500;
             URI uri = URI.create(URL);
+            String jsonStr;
+            try {
+                jsonStr = objectMapper.writeValueAsString(document);
+            } catch (JsonProcessingException e) {
+                log.error("The request was not sent: {}.\n\tSerialization error on the object: {}", e, document);
+                throw new RuntimeException(e);
+            }
+
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(uri)
                     .POST(HttpRequest.BodyPublishers.ofString(jsonStr))
                     .header("Content-Type", "application/json")
+                    .header("Authorization", AUTH_TOKEN)
+                    .header("Signature", signature)
                     .timeout(Duration.ofSeconds(10))
                     .build();
 
@@ -96,7 +112,7 @@ public class CrptApi {
                 HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
                 if (requestCount == 0) {
-                    intervalStartMs = currentTime;
+                    intervalStartMs = System.currentTimeMillis();
                 }
                 requestCount++;
 
@@ -106,7 +122,6 @@ public class CrptApi {
                 } else {
                     log.debug("Request successful with status code {}\n", statusCode);
                 }
-
             } catch (HttpTimeoutException e) {
                 statusCode = 504;
                 log.error("Request timed out: {}", e.getMessage());
@@ -128,53 +143,70 @@ public class CrptApi {
         }
     }
 
-    @Getter
-    @Setter
-    @ToString
-    @Accessors(chain = true)
-    @NoArgsConstructor
-    @FieldDefaults(level = AccessLevel.PRIVATE)
-    static class Document {
+    @Value
+    @Builder
+    @NoArgsConstructor(force = true)
+    @AllArgsConstructor
+    public static class Document {
+        @JsonProperty("description")
         Description description;
+        @JsonProperty("doc_id")
         String docId;
+        @JsonProperty("doc_status")
         String docStatus;
+        @JsonProperty("doc_type")
         String docType;
+        @JsonProperty("import_request")
         boolean importRequest;
+        @JsonProperty("owner_inn")
         String ownerInn;
+        @JsonProperty("participant_inn")
         String participantInn;
+        @JsonProperty("producer_inn")
         String producerInn;
+        @JsonProperty("production_date")
         String productionDate;
+        @JsonProperty("production_type")
         String productionType;
+        @JsonProperty("products")
         List<Product> products;
+        @JsonProperty("reg_date")
         String regDate;
+        @JsonProperty("reg_number")
         String regNumber;
     }
 
-    @Getter
-    @Setter
-    @ToString
-    @Accessors(chain = true)
-    @NoArgsConstructor
-    @FieldDefaults(level = AccessLevel.PRIVATE)
-    static class Description {
+    @Value
+    @Builder
+    @NoArgsConstructor(force = true)
+    @AllArgsConstructor
+    public static class Description {
+        @JsonProperty("participant_inn")
         String participantInn;
     }
 
-    @Getter
-    @Setter
-    @ToString
-    @Accessors(chain = true)
-    @NoArgsConstructor
-    @FieldDefaults(level = AccessLevel.PRIVATE)
-    static class Product {
+    @Value
+    @Builder
+    @NoArgsConstructor(force = true)
+    @AllArgsConstructor
+    public static class Product {
+        @JsonProperty("certificate_document")
         String certificateDocument;
+        @JsonProperty("certificate_document_date")
         String certificateDocumentDate;
+        @JsonProperty("certificate_document_number")
         String certificateDocumentNumber;
+        @JsonProperty("owner_inn")
         String ownerInn;
+        @JsonProperty("producer_inn")
         String producerInn;
+        @JsonProperty("production_date")
         String productionDate;
+        @JsonProperty("tnved_code")
         String tnvedCode;
+        @JsonProperty("uit_code")
         String uitCode;
+        @JsonProperty("uitu_code")
         String uituCode;
     }
 }
