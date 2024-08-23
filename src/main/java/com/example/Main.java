@@ -6,8 +6,13 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 
+import java.net.MalformedURLException;
+import java.net.URISyntaxException;
+import java.net.URL;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Scanner;
 
@@ -19,13 +24,18 @@ import java.util.Scanner;
 public class Main {
     private static final String TEXT_DEFAULT_PARAMS = "параметры по умолчанию";
     private static final String TEXT_SPECIFIED_PARAMS = "указать свои параметры";
+    private static final List<String> requestUrls = new ArrayList<>(Arrays.asList(
+            "https://ismp.crpt.ru/api/v3/lk/documents/create",
+            "http://example.com/api"
+    ));
 
     public static void main(String[] args) {
         log.debug("App {} started", Main.class.getName());
 
-        //Testing CrptApi class
+        //Тестирование класса CrptApi
+        //Передаем в меню значения по умолчанию
         Scanner scanner = new Scanner(System.in);
-        MenuResult menuResult = getMenuResult(scanner, 1, 2, 6);
+        MenuResult menuResult = getMenuResult(scanner, 1, 2, 6, requestUrls.get(1));
 
         if (menuResult.choice == 0) {
             System.out.println("\nВыход из программы.");
@@ -35,6 +45,7 @@ public class Main {
         int requestIntervalSec = menuResult.requestIntervalSec;
         int requestLimit = menuResult.requestLimit;
         int threadsNumber = menuResult.threadsNumber;
+        String requestUrl = menuResult.url;
 
         System.out.printf("\nТест класса %s (%s)\n",
                 CrptApi.class.getSimpleName(), (menuResult.choice == 1 ? TEXT_DEFAULT_PARAMS : TEXT_SPECIFIED_PARAMS));
@@ -94,11 +105,13 @@ public class Main {
             throw new RuntimeException(e);
         }
 
+        CrptApi.Config.INSTANCE.setUrl(requestUrl);
         CrptApi client = new CrptApi(requestIntervalSec, requestLimit);
 
         System.out.println("Кол-во потоков: " + threadsNumber);
         System.out.println("Лимит запросов: " + requestLimit);
         System.out.println("Интервал (сек): " + requestIntervalSec + "\n");
+        System.out.println("URL: " + requestUrl + "\n");
 
         Thread[] threads = new Thread[threadsNumber];
         for (int i = 0; i < threadsNumber; i++) {
@@ -121,14 +134,22 @@ public class Main {
         System.out.println("\nDone");
     }
 
-    private static MenuResult getMenuResult(Scanner scanner, int requestIntervalSec, int requestLimit, int threadsNumber) {
+    private static MenuResult getMenuResult(Scanner scanner, int requestIntervalSec, int requestLimit, int threadsNumber,
+                                            String url) {
+        final String RESET = "\033[0m";
+        final String RED = "\033[31m";
+        final String textIncorrectEnter = "Некорректный ввод. Пожалуйста, введите целое число.";
+        final String textIncorrectChoice = "Некорректный выбор. Пожалуйста, введите номер";
+        final String textIncorrectUrl = "Некорректный ввод. Пожалуйста, введите целое число или корректный URL.";
+
         int choice;
         while (true) {
-            System.out.println("\nВыберите действие:");
+            System.out.println(RESET + "\nВыберите действие:");
             System.out.println("1. Тест класса CrptApi (" + TEXT_DEFAULT_PARAMS + ")");
             System.out.printf("\t- %-18s: %d\n", "количество потоков", threadsNumber);
             System.out.printf("\t- %-18s: %d\n", "лимит запросов", requestLimit);
             System.out.printf("\t- %-18s: %d\n", "интервал (сек)", requestIntervalSec);
+            System.out.printf("\t- %-18s: %s\n", "URL", url);
             System.out.println("2. Тест класса CrptApi (" + TEXT_SPECIFIED_PARAMS + ")");
             System.out.println("0. Выход");
             System.out.print("Ваш выбор (введите номер): ");
@@ -136,19 +157,59 @@ public class Main {
             if (scanner.hasNextInt()) {
                 choice = scanner.nextInt();
                 if (choice < 0 || choice > 2) {
-                    System.out.println("Некорректный выбор. Пожалуйста, введите номер от 0 до 2.");
+                    System.out.println(RED + textIncorrectChoice + " от 0 до 2.");
                 } else {
                     break;
                 }
             } else {
-                System.out.println("Некорректный ввод. Пожалуйста, введите целое число.");
+                System.out.println(RED + textIncorrectEnter);
                 scanner.next();
             }
         }
 
         if (choice != 1) {
             while (choice != 0) {
-                System.out.println("\n0. Выход");
+                final String textForFilledUrlList = "Ваш выбор (введите номер или свой адрес URL): ";
+                final String textForEmptyUrlList = "Укажите URL для отправки запросов: ";
+
+                System.out.println(!requestUrls.isEmpty() ? RESET + "\nВыберите URL для отправки запросов:" : "\n");
+                for (int i = 0; i < requestUrls.size(); i++) {
+                    System.out.printf("%-1d. %s\n", (i + 1), requestUrls.get(i));
+                }
+                System.out.println(RESET + "0. Выход");
+                System.out.print(!requestUrls.isEmpty() ? textForFilledUrlList : textForEmptyUrlList);
+
+                if (scanner.hasNextInt()) {
+                    int urlChoice = scanner.nextInt();
+                    if (urlChoice == 0) {
+                        choice = 0;
+                        break;
+                    }
+
+                    if (!requestUrls.isEmpty()) {
+                        if (urlChoice < 1 || urlChoice > requestUrls.size()) {
+                            System.out.println(RED + textIncorrectChoice + " от 0 до " + requestUrls.size() + ".");
+                        } else {
+                            url = requestUrls.get(urlChoice - 1);
+                            break;
+                        }
+                    } else {
+                        System.out.println(RED + textIncorrectUrl);
+                        scanner.nextLine();
+                    }
+                } else {
+                    url = scanner.next();
+                    if (!isValidUrl(url)) {
+                        System.out.println(RED + textIncorrectUrl);
+                        scanner.nextLine();
+                    } else {
+                        break;
+                    }
+                }
+            }
+
+            while (choice != 0) {
+                System.out.println(RESET + "\n0. Выход");
                 System.out.print("Укажите интервал в секундах: ");
 
                 if (scanner.hasNextInt()) {
@@ -157,18 +218,18 @@ public class Main {
                         choice = 0;
                     }
                     if (requestIntervalSec < 0 || requestIntervalSec > 3600) {
-                        System.out.println("Некорректный выбор. Пожалуйста, введите номер от 0 до 3600.");
+                        System.out.println(RED + textIncorrectChoice + " от 0 до 3600.");
                     } else {
                         break;
                     }
                 } else {
-                    System.out.println("Некорректный ввод. Пожалуйста, введите целое число.");
+                    System.out.println(RED + textIncorrectEnter);
                     scanner.next();
                 }
             }
 
             while (choice != 0) {
-                System.out.println("\n0. Выход");
+                System.out.println(RESET + "\n0. Выход");
                 System.out.print("Укажите лимит запросов за интервал: ");
 
                 if (scanner.hasNextInt()) {
@@ -177,18 +238,18 @@ public class Main {
                         choice = 0;
                     }
                     if (requestLimit < 0 || requestLimit > 1000) {
-                        System.out.println("Некорректный выбор. Пожалуйста, введите номер от 0 до 1000.");
+                        System.out.println(RED + textIncorrectChoice + " от 0 до 1000.");
                     } else {
                         break;
                     }
                 } else {
-                    System.out.println("Некорректный ввод. Пожалуйста, введите целое число.");
+                    System.out.println(RED + textIncorrectEnter);
                     scanner.next();
                 }
             }
 
             while (choice != 0) {
-                System.out.println("\n0. Выход");
+                System.out.println(RESET + "\n0. Выход");
                 System.out.print("Укажите количество потоков: ");
 
                 if (scanner.hasNextInt()) {
@@ -197,20 +258,30 @@ public class Main {
                         choice = 0;
                     }
                     if (threadsNumber < 0 || threadsNumber > 10) {
-                        System.out.println("Некорректный выбор. Пожалуйста, введите номер от 0 до 10.");
+                        System.out.println(RED + textIncorrectChoice + " от 0 до 10.");
                     } else {
                         break;
                     }
                 } else {
-                    System.out.println("Некорректный ввод. Пожалуйста, введите целое число.");
+                    System.out.println(RED + textIncorrectEnter);
                     scanner.next();
                 }
             }
         }
 
-        return new MenuResult(choice, requestIntervalSec, requestLimit, threadsNumber);
+        return new MenuResult(choice, requestIntervalSec, requestLimit, threadsNumber, url);
     }
 
-    private record MenuResult(int choice, int requestIntervalSec, int requestLimit, int threadsNumber) {
+    public static boolean isValidUrl(String urlString) {
+        try {
+            URL url = new URL(urlString);
+            url.toURI();
+            return true;
+        } catch (MalformedURLException | URISyntaxException e) {
+            return false;
+        }
+    }
+
+    private record MenuResult(int choice, int requestIntervalSec, int requestLimit, int threadsNumber, String url) {
     }
 }

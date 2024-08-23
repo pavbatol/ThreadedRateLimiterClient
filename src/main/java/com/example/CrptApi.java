@@ -22,12 +22,10 @@ import java.util.concurrent.TimeUnit;
  * Любой из экземпляров гарантированно не превысит лимит запросов за интервал времени.
  */
 
-//Чтобы протестировать работу CrptApi, просто запустить класс Main. В нем инициируется запросы из нескольких потоков.
-
 @Slf4j
 public class CrptApi {
-    private static final String URL = "https://ismp.crpt.ru/api/v3/lk/documents/create"; //Попробуйте такой URL для тестов: http://example.com/api
-    private static final String AUTH_TOKEN = "Bearer YOUR_TOKEN";
+    private static final String URL = Config.INSTANCE.getUrl();
+    private static final String AUTH_TOKEN = Config.INSTANCE.getAuthToken();
     private static final Object lock = new Object();
     private static long intervalStartMs = System.currentTimeMillis();
     private static int requestCount = 0;
@@ -208,5 +206,16 @@ public class CrptApi {
         String uitCode;
         @JsonProperty("uitu_code")
         String uituCode;
+    }
+
+    @Getter
+    public enum Config {
+        INSTANCE;
+
+        @Setter
+        private String url = "https://ismp.crpt.ru/api/v3/lk/documents/create";
+
+        @Setter
+        private String authToken = "Bearer YOUR_TOKEN";
     }
 }
